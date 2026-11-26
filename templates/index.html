@@ -3,12 +3,22 @@
 {% block content %}
   <section class="hero">
     <h2>Meri Samasya, Mera Samadhan (My Problem, My Solution)</h2>
-    <p>{{ theme_description }}</p>
-    <p>Students can participate <strong>solo</strong> or in a <strong>group</strong> of any size. Every registration receives a unique registration number.</p>
+    {% if registration_deadline %}
+      <p class="muted" style="margin-top:0.75rem;">
+        <strong>Registration deadline:</strong> {{ registration_deadline.strftime('%d %b %Y, %I:%M %p') }}
+        {% if not registration_open %}
+          <span class="badge pending" style="margin-left:0.5rem;">Registrations closed</span>
+        {% else %}
+          <span class="badge done" style="margin-left:0.5rem;">Registrations open</span>
+        {% endif %}
+      </p>
+    {% endif %}
     <div class="actions">
-      <a class="btn" href="{{ url_for('register') }}">Register Now</a>
-      <a class="btn secondary" href="{{ url_for('judge_login') }}">Judge Panel</a>
-      <a class="btn secondary" href="{{ url_for('admin_login') }}">Admin Login</a>
+      {% if registration_open %}
+        <a class="btn" href="{{ url_for('register') }}">Register Now</a>
+      {% else %}
+        <span class="btn secondary" aria-disabled="true">Registrations Closed</span>
+      {% endif %}
     </div>
   </section>
 
@@ -16,7 +26,7 @@
     <h2>Tracks &amp; Example Problems</h2>
     <div class="grid tracks">
       {% for track in tracks %}
-        <div class="card">
+        <div class="card track-card track-color-{{ loop.index }}">
           <h3>{{ track.name }}</h3>
           <p class="muted"><strong>Examples:</strong> {{ track.examples }}</p>
         </div>
@@ -29,7 +39,7 @@
     <p class="muted">Judges evaluate each project on five parameters (1&ndash;10 each). Thinking about the problem is valued over technical polish.</p>
     <div class="grid tracks">
       {% for p in judging_parameters %}
-        <div class="card">
+        <div class="card param-card param-color-{{ loop.index }}">
           <h3>{{ loop.index }}. {{ p.label }}</h3>
           <p class="muted">{{ p.description }}</p>
         </div>

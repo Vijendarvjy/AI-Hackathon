@@ -1,10 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Evaluate {{ registration.registration_number }} - AI Hackathon{% endblock %}
+{% block title %}Evaluate {{ registration.registration_number }} - {{ round_info.short_label }} - AI Hackathon{% endblock %}
 {% block content %}
   <section class="section">
     <h2>Evaluate Registration: {{ registration.registration_number }}</h2>
+    <p class="muted"><strong>{{ round_info.label }}</strong> &mdash; {{ round_info.mode }}</p>
     <div class="actions">
-      <a class="btn secondary" href="{{ url_for('judge_dashboard') }}">Back to Judge Panel</a>
+      <a class="btn secondary" href="{{ url_for('judge_dashboard', round=round_key) }}">Back to Judge Panel</a>
     </div>
   </section>
 
@@ -59,7 +60,7 @@
 
         <div class="actions">
           <button type="submit" class="btn">{% if existing %}Update Evaluation{% else %}Submit Evaluation{% endif %}</button>
-          <a href="{{ url_for('judge_dashboard') }}" class="btn secondary">Cancel</a>
+          <a href="{{ url_for('judge_dashboard', round=round_key) }}" class="btn secondary">Cancel</a>
         </div>
       </form>
     </div>

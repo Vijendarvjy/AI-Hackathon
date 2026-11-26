@@ -3,17 +3,31 @@
 {% block content %}
   <section class="section">
     <h2>Judge Panel</h2>
-    <p class="muted">Welcome, {{ current_user.name }}. Evaluate each registered project on the five judging parameters. Judges reward thinking about the problem over technical polish.</p>
+    <p class="muted">Welcome, {{ current_user.name }}. Evaluate projects across the four evaluation levels.</p>
 
     <div class="stats">
-      <div class="stat"><div class="num">{{ registrations|length }}</div><div>Total registrations</div></div>
-      <div class="stat"><div class="num">{{ pending }}</div><div>Pending evaluation</div></div>
-      <div class="stat"><div class="num">{{ completed }}</div><div>Completed by you</div></div>
+      <div class="stat stat-color-1"><div class="num">{{ registrations|length }}</div><div>Teams in {{ selected_round_info.short_label }}</div></div>
+      <div class="stat stat-color-2"><div class="num">{{ pending }}</div><div>Pending evaluation</div></div>
+      <div class="stat stat-color-3"><div class="num">{{ completed }}</div><div>Completed by you</div></div>
     </div>
   </section>
 
   <section class="section">
-    <h2>Registrations to Evaluate</h2>
+    <h2>Evaluation Levels</h2>
+    <div class="grid tracks">
+      {% for level in evaluation_levels %}
+        <a class="card track-card track-color-{{ loop.index }}" href="{{ url_for('judge_dashboard', round=level.key) }}" style="text-decoration:none; {% if selected_round == level.key %}outline:3px solid var(--primary);{% endif %}">
+          <h3>{{ level.label }}</h3>
+          <p class="muted"><strong>Teams in round:</strong> {{ round_counts.get(level.key, 0) }}</p>
+          <p class="muted"><strong>Mode:</strong> {{ level.mode }}</p>
+        </a>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>{{ selected_round_info.label }} - Registrations to Evaluate</h2>
+    <p class="muted">{{ selected_round_info.participants }}. Mode: {{ selected_round_info.mode }}.</p>
     <div class="table-wrap">
       <table>
         <thead>
@@ -55,13 +69,13 @@
                 {% endif %}
               </td>
               <td>
-                <a class="btn small" href="{{ url_for('evaluate', registration_id=r.id) }}">
+                <a class="btn small" href="{{ url_for('evaluate', registration_id=r.id, round_key=selected_round) }}">
                   {% if r.evaluation_id %}Update{% else %}Evaluate{% endif %}
                 </a>
               </td>
             </tr>
           {% else %}
-            <tr><td colspan="8" class="muted">No registrations available yet.</td></tr>
+            <tr><td colspan="8" class="muted">No teams in this round yet. Admin can advance teams from previous rounds.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -72,7 +86,7 @@
     <h3>Judging Parameters (1&ndash;10 each)</h3>
     <div class="grid tracks">
       {% for p in judging_parameters %}
-        <div class="card">
+        <div class="card param-card param-color-{{ loop.index }}">
           <h3>{{ loop.index }}. {{ p.label }}</h3>
           <p class="muted">{{ p.description }}</p>
         </div>

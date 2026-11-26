@@ -4,6 +4,20 @@
   <section class="section">
     <h2>Student Registration</h2>
     <p class="muted">Register as <strong>solo</strong> or as a <strong>group</strong> of any size. A unique registration number will be generated after submission.</p>
+    {% if registration_deadline %}
+      <p class="muted">
+        <strong>Registration deadline:</strong> {{ registration_deadline.strftime('%d %b %Y, %I:%M %p') }}
+        {% if not registration_open %}
+          <span class="badge pending" style="margin-left:0.5rem;">Registrations closed</span>
+        {% endif %}
+      </p>
+    {% endif %}
+    {% if not registration_open %}
+      <div class="card">
+        <p><strong>Registrations are closed.</strong> The registration deadline has passed.</p>
+        <a class="btn secondary" href="{{ url_for('index') }}">Back to Home</a>
+      </div>
+    {% else %}
 
     {% set member_ns = namespace(indices=[]) %}
     {% for key in form.keys() %}
@@ -115,6 +129,7 @@
         <a href="{{ url_for('index') }}" class="btn secondary">Cancel</a>
       </div>
     </form>
+    {% endif %}
   </section>
 
   <script>

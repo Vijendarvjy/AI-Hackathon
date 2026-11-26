@@ -10,21 +10,21 @@
   <header class="site-header">
     <div class="container header-inner">
       <div class="brand">
-        <h1>AI Hackathon for School Students</h1>
-        <p class="tagline">{{ theme_title }}</p>
+        <img src="{{ url_for('static', filename='images/nirmaan-logo.png') }}" alt="Nirmaan logo" class="site-logo">
+        <div class="brand-text">
+          <h1>AI Hackathon for School Students</h1>
+          <p class="tagline">{{ theme_title }}</p>
+        </div>
       </div>
       <nav>
-        <a href="{{ url_for('index') }}">Home</a>
-        <a href="{{ url_for('register') }}">Register</a>
         {% if current_user and current_user.role == 'admin' %}
-          <a href="{{ url_for('admin_dashboard') }}">Admin Dashboard</a>
           <a href="{{ url_for('logout') }}">Logout</a>
         {% elif current_user and current_user.role == 'judge' %}
           <a href="{{ url_for('judge_dashboard') }}">Judge Panel</a>
           <a href="{{ url_for('logout') }}">Logout</a>
         {% else %}
-          <a href="{{ url_for('admin_login') }}">Admin Login</a>
-          <a href="{{ url_for('judge_login') }}">Judge Login</a>
+          <a href="{{ url_for('index') }}">Home</a>
+          <a href="{{ url_for('register') }}">Register</a>
         {% endif %}
       </nav>
     </div>
@@ -44,7 +44,12 @@
     {% block content %}{% endblock %}
 
     <footer>
-      <p>Theme: <strong>{{ theme_title }}</strong> &mdash; {{ theme_description }}</p>
+      <p><strong>{{ theme_title }}</strong></p>
+      <p class="footer-links">
+        <a href="{{ url_for('judge_login') }}">Judge Panel</a>
+        <span aria-hidden="true">·</span>
+        <a href="{{ url_for('admin_login') }}">Admin Login</a>
+      </p>
     </footer>
   </main>
 </body>

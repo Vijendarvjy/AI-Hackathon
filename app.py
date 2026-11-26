@@ -10,13 +10,20 @@ from flask import (  # pyright: ignore[reportMissingImports]
     redirect,
     render_template,
     request,
+    send_file,
     session,
     url_for,
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE = os.path.join(BASE_DIR, "instance", "hackathon.db")
+
+# Netlify Functions run on a read-only filesystem except /tmp.
+# SQLite data in /tmp is ephemeral and not shared across function instances.
+if os.environ.get("NETLIFY") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+    DATABASE = os.path.join("/tmp", "hackathon.db")
+else:
+    DATABASE = os.path.join(BASE_DIR, "instance", "hackathon.db")
 
 # Hackathon configuration
 THEME_TITLE = "Meri Samasya, Mera Samadhan (My Problem, My Solution)"
@@ -79,6 +86,47 @@ JUDGING_PARAMETERS = [
         "description": "Clarity of explanation, communication, and ability to discuss limitations or improvements.",
     },
 ]
+
+EVALUATION_LEVELS = [
+    {
+        "key": "school",
+        "label": "Level 1: School Round",
+        "short_label": "School Round",
+        "participants": "Every student, about 50 teams per school",
+        "teams": "4,500",
+        "students": "18,000",
+        "mode": "Paper scoresheets, with a panel at each school",
+    },
+    {
+        "key": "online_screening",
+        "label": "Level 2: Online Screening",
+        "short_label": "Online Screening",
+        "participants": "2 teams per age group from each school",
+        "teams": "360",
+        "students": "1,440",
+        "mode": "Short video and project form, scored online",
+    },
+    {
+        "key": "regional_finals",
+        "label": "Level 3: Regional Finals",
+        "short_label": "Regional Finals",
+        "participants": "30 teams per region",
+        "teams": "180",
+        "students": "720",
+        "mode": "Live demos at 6 venues",
+    },
+    {
+        "key": "national_finals",
+        "label": "Level 4: National Finals",
+        "short_label": "National Finals",
+        "participants": "Top 5 teams per region",
+        "teams": "30",
+        "students": "120",
+        "mode": "Live demos, user-feedback sprint and showcase",
+    },
+]
+DEFAULT_EVALUATION_LEVEL = EVALUATION_LEVELS[0]["key"]
+EVALUATION_LEVEL_KEYS = {level["key"] for level in EVALUATION_LEVELS}
 
 MIN_SCORE = 1
 MAX_SCORE = 10
@@ -143,6 +191,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             registration_id INTEGER NOT NULL,
             judge_id INTEGER NOT NULL,
+            round TEXT NOT NULL DEFAULT 'school',
             problem_understanding INTEGER NOT NULL,
             solution_relevance INTEGER NOT NULL,
             creativity INTEGER NOT NULL,
@@ -152,12 +201,66 @@ def init_db():
             total_score INTEGER NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            UNIQUE(registration_id, judge_id),
+            UNIQUE(registration_id, judge_id, round),
             FOREIGN KEY(registration_id) REFERENCES registrations(id) ON DELETE CASCADE,
             FOREIGN KEY(judge_id) REFERENCES users(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS registration_rounds (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            registration_id INTEGER NOT NULL,
+            round TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'qualified', 'not_qualified')),
+            notes TEXT,
+            updated_at TEXT NOT NULL,
+            UNIQUE(registration_id, round),
+            FOREIGN KEY(registration_id) REFERENCES registrations(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
         """
     )
+
+    # Migrate legacy evaluations table (without round) to round-aware schema.
+    eval_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(evaluations)").fetchall()
+    }
+    if "round" not in eval_columns:
+        db.executescript(
+            """
+            ALTER TABLE evaluations RENAME TO evaluations_old;
+            CREATE TABLE evaluations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                registration_id INTEGER NOT NULL,
+                judge_id INTEGER NOT NULL,
+                round TEXT NOT NULL DEFAULT 'school',
+                problem_understanding INTEGER NOT NULL,
+                solution_relevance INTEGER NOT NULL,
+                creativity INTEGER NOT NULL,
+                feasibility INTEGER NOT NULL,
+                presentation INTEGER NOT NULL,
+                comments TEXT,
+                total_score INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(registration_id, judge_id, round),
+                FOREIGN KEY(registration_id) REFERENCES registrations(id) ON DELETE CASCADE,
+                FOREIGN KEY(judge_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            INSERT INTO evaluations (
+                id, registration_id, judge_id, round, problem_understanding, solution_relevance,
+                creativity, feasibility, presentation, comments, total_score, created_at, updated_at
+            )
+            SELECT
+                id, registration_id, judge_id, 'school', problem_understanding, solution_relevance,
+                creativity, feasibility, presentation, comments, total_score, created_at, updated_at
+            FROM evaluations_old;
+            DROP TABLE evaluations_old;
+            """
+        )
 
     # Seed default admin and judge accounts if missing
     now = datetime.utcnow().isoformat(timespec="seconds")
@@ -177,7 +280,56 @@ def init_db():
             "INSERT INTO users (username, password_hash, role, name, created_at) VALUES (?, ?, ?, ?, ?)",
             ("judge", generate_password_hash("judge123"), "judge", "Demo Judge", now),
         )
+
+    db.execute(
+        """
+        INSERT OR IGNORE INTO registration_rounds (registration_id, round, status, updated_at)
+        SELECT id, ?, 'pending', ? FROM registrations
+        """,
+        (DEFAULT_EVALUATION_LEVEL, now),
+    )
     db.commit()
+
+
+REGISTRATION_DEADLINE_KEY = "registration_deadline"
+
+
+def get_setting(key, default=None):
+    db = get_db()
+    row = db.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def set_setting(key, value):
+    db = get_db()
+    db.execute(
+        "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+    db.commit()
+
+
+def delete_setting(key):
+    db = get_db()
+    db.execute("DELETE FROM settings WHERE key = ?", (key,))
+    db.commit()
+
+
+def get_registration_deadline():
+    value = get_setting(REGISTRATION_DEADLINE_KEY)
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def is_registration_open():
+    deadline = get_registration_deadline()
+    if deadline is None:
+        return True
+    return datetime.utcnow() <= deadline
 
 
 def generate_registration_number():
@@ -224,12 +376,15 @@ def ensure_db():
 
 @app.context_processor
 def inject_globals():
+    deadline = get_registration_deadline()
     return {
         "theme_title": THEME_TITLE,
         "theme_description": THEME_DESCRIPTION,
         "tracks": TRACKS,
         "judging_parameters": JUDGING_PARAMETERS,
         "current_user": session.get("user"),
+        "registration_deadline": deadline,
+        "registration_open": is_registration_open() if deadline is not None else True,
     }
 
 
@@ -240,7 +395,12 @@ def index():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
+    registration_open = is_registration_open()
+    deadline = get_registration_deadline()
     if request.method == "POST":
+        if not registration_open:
+            flash("Registration deadline has passed. New registrations are closed.", "error")
+            return render_template("register.html", form=request.form)
         team_type = (request.form.get("team_type") or "").strip()
         track = (request.form.get("track") or "").strip()
         problem_title = (request.form.get("problem_title") or "").strip()
@@ -328,6 +488,10 @@ def register():
                 "INSERT INTO team_members (registration_id, member_name, member_class) VALUES (?, ?, ?)",
                 (reg_id, m_name, m_class),
             )
+        db.execute(
+            "INSERT OR IGNORE INTO registration_rounds (registration_id, round, status, updated_at) VALUES (?, ?, 'pending', ?)",
+            (reg_id, DEFAULT_EVALUATION_LEVEL, now),
+        )
         db.commit()
         return redirect(url_for("register_success", reg_no=reg_no))
 
@@ -405,13 +569,61 @@ def logout():
     return redirect(url_for("index"))
 
 
+def _registration_filters(args):
+    reg_round = (args.get("reg_round") or "all").strip()
+    if reg_round != "all" and reg_round not in EVALUATION_LEVEL_KEYS:
+        reg_round = "all"
+    track = (args.get("track") or "all").strip()
+    valid_tracks = {t["name"] for t in TRACKS}
+    if track != "all" and track not in valid_tracks:
+        track = "all"
+    team_type = (args.get("team_type") or "all").strip()
+    if team_type not in {"all", "solo", "group"}:
+        team_type = "all"
+    q = (args.get("q") or "").strip()
+    return {"reg_round": reg_round, "track": track, "team_type": team_type, "q": q}
+
+
+def _query_registrations(db, filters, include_round_status=False):
+    params = []
+    where = []
+    reg_round = filters["reg_round"]
+    if reg_round == "all":
+        base = "SELECT r.* FROM registrations r"
+    else:
+        select_extra = ", rr.status as current_round_status" if include_round_status else ""
+        base = (
+            f"SELECT r.*{select_extra} FROM registrations r "
+            "INNER JOIN registration_rounds rr ON rr.registration_id = r.id AND rr.round = ?"
+        )
+        params.append(reg_round)
+    if filters["track"] != "all":
+        where.append("r.track = ?")
+        params.append(filters["track"])
+    if filters["team_type"] != "all":
+        where.append("r.team_type = ?")
+        params.append(filters["team_type"])
+    if filters["q"]:
+        like = f"%{filters['q']}%"
+        where.append("(r.registration_number LIKE ? OR r.school_name LIKE ? OR r.leader_name LIKE ? OR r.problem_title LIKE ?)")
+        params.extend([like, like, like, like])
+    sql = base
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY r.created_at DESC, r.id DESC"
+    return db.execute(sql, params).fetchall()
+
+
 @app.route("/admin")
 @login_required(role="admin")
 def admin_dashboard():
     db = get_db()
-    registrations = db.execute(
-        "SELECT * FROM registrations ORDER BY created_at DESC, id DESC"
-    ).fetchall()
+    selected_round = request.args.get("round", DEFAULT_EVALUATION_LEVEL)
+    if selected_round not in EVALUATION_LEVEL_KEYS:
+        selected_round = DEFAULT_EVALUATION_LEVEL
+    reg_filters = _registration_filters(request.args)
+    reg_round = reg_filters["reg_round"]
+    registrations = _query_registrations(db, reg_filters, include_round_status=True)
     members_by_reg = {}
     for r in registrations:
         members_by_reg[r["id"]] = db.execute(
@@ -419,11 +631,11 @@ def admin_dashboard():
             (r["id"],),
         ).fetchall()
 
-    # Aggregate evaluation results per registration
     results = db.execute(
         """
         SELECT r.id, r.registration_number, r.team_type, r.track, r.problem_title,
                r.school_name, r.leader_name,
+               rr.status as round_status,
                COUNT(e.id) as eval_count,
                ROUND(AVG(e.total_score), 2) as avg_total,
                ROUND(AVG(e.problem_understanding), 2) as avg_problem_understanding,
@@ -432,22 +644,63 @@ def admin_dashboard():
                ROUND(AVG(e.feasibility), 2) as avg_feasibility,
                ROUND(AVG(e.presentation), 2) as avg_presentation
         FROM registrations r
-        LEFT JOIN evaluations e ON e.registration_id = r.id
-        GROUP BY r.id
+        INNER JOIN registration_rounds rr ON rr.registration_id = r.id AND rr.round = ?
+        LEFT JOIN evaluations e ON e.registration_id = r.id AND e.round = ?
+        GROUP BY r.id, rr.status
         ORDER BY avg_total IS NULL, avg_total DESC, r.created_at ASC
-        """
+        """,
+        (selected_round, selected_round),
     ).fetchall()
+
+    round_counts = {}
+    for level in EVALUATION_LEVELS:
+        row = db.execute(
+            """
+            SELECT
+                SUM(CASE WHEN status != 'not_qualified' THEN 1 ELSE 0 END) as active_count,
+                SUM(CASE WHEN status = 'qualified' THEN 1 ELSE 0 END) as qualified_count,
+                SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_count
+            FROM registration_rounds WHERE round = ?
+            """,
+            (level["key"],),
+        ).fetchone()
+        eval_row = db.execute(
+            """
+            SELECT COUNT(DISTINCT e.registration_id) as evaluated_count
+            FROM evaluations e
+            INNER JOIN registration_rounds rr ON rr.registration_id = e.registration_id AND rr.round = e.round
+            WHERE e.round = ? AND rr.status != 'not_qualified'
+            """,
+            (level["key"],),
+        ).fetchone()
+        round_counts[level["key"]] = {
+            "active": (row["active_count"] or 0) if row else 0,
+            "qualified": (row["qualified_count"] or 0) if row else 0,
+            "pending": (row["pending_count"] or 0) if row else 0,
+            "evaluated": (eval_row["evaluated_count"] or 0) if eval_row else 0,
+        }
 
     judges = db.execute(
         "SELECT id, username, name, created_at FROM users WHERE role = 'judge' ORDER BY created_at DESC"
     ).fetchall()
+    all_reg_stats = db.execute(
+        """
+        SELECT
+            COUNT(*) as total_registrations,
+            SUM(CASE WHEN team_type = 'solo' THEN 1 ELSE 0 END) as solo,
+            SUM(CASE WHEN team_type = 'group' THEN 1 ELSE 0 END) as group_count
+        FROM registrations
+        """
+    ).fetchone()
     stats = {
-        "total_registrations": len(registrations),
-        "solo": sum(1 for r in registrations if r["team_type"] == "solo"),
-        "group": sum(1 for r in registrations if r["team_type"] == "group"),
+        "total_registrations": all_reg_stats["total_registrations"] or 0,
+        "solo": all_reg_stats["solo"] or 0,
+        "group": all_reg_stats["group_count"] or 0,
         "evaluated": sum(1 for r in results if r["eval_count"] and r["eval_count"] > 0),
         "judges": len(judges),
     }
+    selected_round_info = next(level for level in EVALUATION_LEVELS if level["key"] == selected_round)
+    selected_reg_round_info = next((level for level in EVALUATION_LEVELS if level["key"] == reg_round), None)
     return render_template(
         "admin_dashboard.html",
         registrations=registrations,
@@ -455,6 +708,203 @@ def admin_dashboard():
         results=results,
         judges=judges,
         stats=stats,
+        evaluation_levels=EVALUATION_LEVELS,
+        selected_round=selected_round,
+        selected_round_info=selected_round_info,
+        round_counts=round_counts,
+        reg_round=reg_round,
+        selected_reg_round_info=selected_reg_round_info,
+        reg_filters=reg_filters,
+        tracks=TRACKS,
+    )
+
+
+@app.route("/admin/registrations/<int:registration_id>/round-status", methods=["POST"])
+@login_required(role="admin")
+def admin_update_round_status(registration_id):
+    db = get_db()
+    round_key = (request.form.get("round") or "").strip()
+    status = (request.form.get("status") or "").strip()
+    if round_key not in EVALUATION_LEVEL_KEYS:
+        flash("Invalid evaluation round.", "error")
+        return redirect(url_for("admin_dashboard"))
+    if status not in {"pending", "qualified", "not_qualified"}:
+        flash("Invalid round status.", "error")
+        return redirect(url_for("admin_dashboard", round=round_key))
+
+    reg = db.execute("SELECT id, registration_number FROM registrations WHERE id = ?", (registration_id,)).fetchone()
+    if not reg:
+        flash("Registration not found.", "error")
+        return redirect(url_for("admin_dashboard", round=round_key))
+
+    now = datetime.utcnow().isoformat(timespec="seconds")
+    db.execute(
+        """
+        INSERT INTO registration_rounds (registration_id, round, status, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(registration_id, round) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at
+        """,
+        (registration_id, round_key, status, now),
+    )
+
+    if status == "qualified":
+        keys = [level["key"] for level in EVALUATION_LEVELS]
+        try:
+            idx = keys.index(round_key)
+        except ValueError:
+            idx = -1
+        if idx >= 0 and idx + 1 < len(keys):
+            next_round = keys[idx + 1]
+            db.execute(
+                """
+                INSERT OR IGNORE INTO registration_rounds (registration_id, round, status, updated_at)
+                VALUES (?, ?, 'pending', ?)
+                """,
+                (registration_id, next_round, now),
+            )
+            flash(
+                f"{reg['registration_number']} marked qualified in {round_key.replace('_', ' ').title()} and moved to next round.",
+                "success",
+            )
+        else:
+            flash(f"{reg['registration_number']} marked qualified in {round_key.replace('_', ' ').title()}.", "success")
+    else:
+        flash(f"{reg['registration_number']} marked {status.replace('_', ' ')} in {round_key.replace('_', ' ').title()}.", "success")
+
+    db.commit()
+    return redirect(url_for("admin_dashboard", round=round_key))
+
+
+@app.route("/admin/settings/deadline", methods=["POST"])
+@login_required(role="admin")
+def admin_set_registration_deadline():
+    deadline_raw = (request.form.get("registration_deadline") or "").strip()
+    if not deadline_raw:
+        delete_setting(REGISTRATION_DEADLINE_KEY)
+        flash("Registration deadline cleared. Registrations are now open.", "success")
+        return redirect(url_for("admin_dashboard"))
+
+    try:
+        deadline = datetime.strptime(deadline_raw, "%Y-%m-%dT%H:%M")
+    except ValueError:
+        flash("Invalid deadline format. Please use the datetime picker.", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    set_setting(REGISTRATION_DEADLINE_KEY, deadline.isoformat(timespec="seconds"))
+    flash(f"Registration deadline set to {deadline.strftime('%d %b %Y, %I:%M %p')}.", "success")
+    return redirect(url_for("admin_dashboard"))
+
+
+def _registration_export_rows(db, filters):
+    registrations = _query_registrations(db, filters)
+    headers = [
+        "Registration Number",
+        "Team Type",
+        "Track",
+        "Problem Title",
+        "Problem Description",
+        "School Name",
+        "Leader Name",
+        "Leader Class",
+        "Leader Contact",
+        "Leader Email",
+        "Team Members",
+        "Registered At (UTC)",
+    ] + [f"{level['short_label']} Status" for level in EVALUATION_LEVELS]
+    rows = []
+    for reg in registrations:
+        members = db.execute(
+            "SELECT member_name, member_class FROM team_members WHERE registration_id = ? ORDER BY id",
+            (reg["id"],),
+        ).fetchall()
+        members_text = "; ".join(
+            f"{m['member_name']} (Class {m['member_class']})" for m in members
+        )
+        round_statuses = []
+        for level in EVALUATION_LEVELS:
+            rr = db.execute(
+                "SELECT status FROM registration_rounds WHERE registration_id = ? AND round = ?",
+                (reg["id"], level["key"]),
+            ).fetchone()
+            round_statuses.append(rr["status"] if rr else "")
+        rows.append(
+            [
+                reg["registration_number"],
+                reg["team_type"],
+                reg["track"],
+                reg["problem_title"],
+                reg["problem_description"],
+                reg["school_name"],
+                reg["leader_name"],
+                reg["leader_class"],
+                reg["leader_contact"] or "",
+                reg["leader_email"] or "",
+                members_text,
+                reg["created_at"],
+            ] + round_statuses
+        )
+    return headers, rows
+
+
+@app.route("/admin/export/registrations.xlsx")
+@login_required(role="admin")
+def admin_export_registrations():
+    from io import BytesIO
+
+    from openpyxl import Workbook
+
+    db = get_db()
+    filters = _registration_filters(request.args)
+    headers, rows = _registration_export_rows(db, filters)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Registrations"
+    ws.append(headers)
+    for row in rows:
+        ws.append(row)
+
+    for column_cells in ws.columns:
+        max_length = 12
+        column_letter = column_cells[0].column_letter
+        for cell in column_cells:
+            cell_value = "" if cell.value is None else str(cell.value)
+            max_length = min(max(max_length, len(cell_value) + 2), 50)
+        ws.column_dimensions[column_letter].width = max_length
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    filename = f"registrations-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.xlsx"
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.route("/admin/export/registrations.csv")
+@login_required(role="admin")
+def admin_export_registrations_csv():
+    import csv
+    from io import BytesIO, StringIO
+
+    db = get_db()
+    filters = _registration_filters(request.args)
+    headers, rows = _registration_export_rows(db, filters)
+
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(headers)
+    writer.writerows(rows)
+    mem = BytesIO(output.getvalue().encode("utf-8-sig"))
+    filename = f"registrations-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.csv"
+    return send_file(
+        mem,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="text/csv",
     )
 
 
@@ -489,13 +939,56 @@ def admin_judges():
                 (username, generate_password_hash(password), name, now),
             )
             db.commit()
+            session["new_judge_credentials"] = {
+                "name": name,
+                "username": username,
+                "password": password,
+            }
             flash(f"Judge '{name}' created successfully.", "success")
             return redirect(url_for("admin_judges"))
 
     judges = db.execute(
         "SELECT id, username, name, created_at FROM users WHERE role = 'judge' ORDER BY created_at DESC"
     ).fetchall()
-    return render_template("admin_judges.html", judges=judges)
+    new_judge_credentials = session.pop("new_judge_credentials", None)
+    reset_judge_credentials = session.pop("reset_judge_credentials", None)
+    return render_template(
+        "admin_judges.html",
+        judges=judges,
+        new_judge_credentials=new_judge_credentials,
+        reset_judge_credentials=reset_judge_credentials,
+    )
+
+
+@app.route("/admin/judges/<int:judge_id>/reset-password", methods=["POST"])
+@login_required(role="admin")
+def admin_reset_judge_password(judge_id):
+    db = get_db()
+    judge = db.execute(
+        "SELECT id, name, username FROM users WHERE id = ? AND role = 'judge'",
+        (judge_id,),
+    ).fetchone()
+    if not judge:
+        flash("Judge account not found.", "error")
+        return redirect(url_for("admin_judges"))
+
+    password = request.form.get("password") or ""
+    if len(password) < 6:
+        flash("Password must be at least 6 characters.", "error")
+        return redirect(url_for("admin_judges"))
+
+    db.execute(
+        "UPDATE users SET password_hash = ? WHERE id = ? AND role = 'judge'",
+        (generate_password_hash(password), judge_id),
+    )
+    db.commit()
+    session["reset_judge_credentials"] = {
+        "name": judge["name"],
+        "username": judge["username"],
+        "password": password,
+    }
+    flash(f"Password reset for judge '{judge['name']}'.", "success")
+    return redirect(url_for("admin_judges"))
 
 
 @app.route("/judge")
@@ -503,14 +996,21 @@ def admin_judges():
 def judge_dashboard():
     db = get_db()
     judge_id = session["user"]["id"]
+    selected_round = request.args.get("round", DEFAULT_EVALUATION_LEVEL)
+    if selected_round not in EVALUATION_LEVEL_KEYS:
+        selected_round = DEFAULT_EVALUATION_LEVEL
+
     rows = db.execute(
         """
-        SELECT r.*, e.id as evaluation_id, e.total_score, e.updated_at as eval_updated_at
+        SELECT r.*, rr.status as round_status, rr.notes as round_notes,
+               e.id as evaluation_id, e.total_score, e.updated_at as eval_updated_at
         FROM registrations r
-        LEFT JOIN evaluations e ON e.registration_id = r.id AND e.judge_id = ?
+        INNER JOIN registration_rounds rr ON rr.registration_id = r.id AND rr.round = ?
+        LEFT JOIN evaluations e ON e.registration_id = r.id AND e.judge_id = ? AND e.round = ?
+        WHERE rr.status != 'not_qualified'
         ORDER BY e.id IS NULL DESC, r.created_at ASC
         """,
-        (judge_id,),
+        (selected_round, judge_id, selected_round),
     ).fetchall()
     members_by_reg = {}
     for r in rows:
@@ -518,22 +1018,41 @@ def judge_dashboard():
             "SELECT member_name, member_class FROM team_members WHERE registration_id = ? ORDER BY id",
             (r["id"],),
         ).fetchall()
+
+    round_counts = {}
+    for level in EVALUATION_LEVELS:
+        count_row = db.execute(
+            "SELECT COUNT(*) as cnt FROM registration_rounds WHERE round = ? AND status != 'not_qualified'",
+            (level["key"],),
+        ).fetchone()
+        round_counts[level["key"]] = count_row["cnt"] if count_row else 0
+
     pending = sum(1 for r in rows if not r["evaluation_id"])
     completed = sum(1 for r in rows if r["evaluation_id"])
+    selected_round_info = next(level for level in EVALUATION_LEVELS if level["key"] == selected_round)
     return render_template(
         "judge_dashboard.html",
         registrations=rows,
         members_by_reg=members_by_reg,
         pending=pending,
         completed=completed,
+        evaluation_levels=EVALUATION_LEVELS,
+        selected_round=selected_round,
+        selected_round_info=selected_round_info,
+        round_counts=round_counts,
     )
 
 
 @app.route("/judge/evaluate/<int:registration_id>", methods=["GET", "POST"])
+@app.route("/judge/evaluate/<int:registration_id>/<round_key>", methods=["GET", "POST"])
 @login_required(role="judge")
-def evaluate(registration_id):
+def evaluate(registration_id, round_key=DEFAULT_EVALUATION_LEVEL):
     db = get_db()
     judge_id = session["user"]["id"]
+    if round_key not in EVALUATION_LEVEL_KEYS:
+        flash("Invalid evaluation round.", "error")
+        return redirect(url_for("judge_dashboard"))
+
     registration = db.execute(
         "SELECT * FROM registrations WHERE id = ?", (registration_id,)
     ).fetchone()
@@ -546,9 +1065,10 @@ def evaluate(registration_id):
         (registration_id,),
     ).fetchall()
     existing = db.execute(
-        "SELECT * FROM evaluations WHERE registration_id = ? AND judge_id = ?",
-        (registration_id, judge_id),
+        "SELECT * FROM evaluations WHERE registration_id = ? AND judge_id = ? AND round = ?",
+        (registration_id, judge_id, round_key),
     ).fetchone()
+    round_info = next(level for level in EVALUATION_LEVELS if level["key"] == round_key)
 
     if request.method == "POST":
         scores = {}
@@ -591,18 +1111,19 @@ def evaluate(registration_id):
                         existing["id"],
                     ),
                 )
-                flash("Evaluation updated successfully.", "success")
+                flash(f"Evaluation updated for {round_info['short_label']}.", "success")
             else:
                 db.execute(
                     """
                     INSERT INTO evaluations
-                    (registration_id, judge_id, problem_understanding, solution_relevance, creativity,
+                    (registration_id, judge_id, round, problem_understanding, solution_relevance, creativity,
                      feasibility, presentation, comments, total_score, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         registration_id,
                         judge_id,
+                        round_key,
                         scores["problem_understanding"],
                         scores["solution_relevance"],
                         scores["creativity"],
@@ -614,9 +1135,9 @@ def evaluate(registration_id):
                         now,
                     ),
                 )
-                flash("Evaluation submitted successfully.", "success")
+                flash(f"Evaluation submitted for {round_info['short_label']}.", "success")
             db.commit()
-            return redirect(url_for("judge_dashboard"))
+            return redirect(url_for("judge_dashboard", round=round_key))
 
     return render_template(
         "evaluate.html",
@@ -625,6 +1146,9 @@ def evaluate(registration_id):
         existing=existing,
         min_score=MIN_SCORE,
         max_score=MAX_SCORE,
+        round_key=round_key,
+        round_info=round_info,
+        evaluation_levels=EVALUATION_LEVELS,
     )
 
 

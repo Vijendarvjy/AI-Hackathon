@@ -3,61 +3,69 @@
 {% block content %}
   <section class="section">
     <h2>Admin Dashboard</h2>
-    <p class="muted">Manage registrations, judges, and view evaluation results.</p>
+    <p class="muted">Manage registrations, judges, and four-level evaluations.</p>
 
     <div class="stats">
-      <div class="stat"><div class="num">{{ stats.total_registrations }}</div><div>Total registrations</div></div>
-      <div class="stat"><div class="num">{{ stats.solo }}</div><div>Solo</div></div>
-      <div class="stat"><div class="num">{{ stats.group }}</div><div>Group</div></div>
-      <div class="stat"><div class="num">{{ stats.evaluated }}</div><div>Teams evaluated (>=1 judge)</div></div>
-      <div class="stat"><div class="num">{{ stats.judges }}</div><div>Judge accounts</div></div>
+      <div class="stat stat-color-1"><div class="num">{{ stats.total_registrations }}</div><div>Total registrations</div></div>
+      <div class="stat stat-color-2"><div class="num">{{ stats.solo }}</div><div>Solo</div></div>
+      <div class="stat stat-color-3"><div class="num">{{ stats.group }}</div><div>Group</div></div>
+      <div class="stat stat-color-4"><div class="num">{{ stats.evaluated }}</div><div>Evaluated in {{ selected_round_info.short_label }}</div></div>
+      <div class="stat stat-color-5"><div class="num">{{ stats.judges }}</div><div>Judge accounts</div></div>
     </div>
 
     <div class="actions">
       <a class="btn" href="{{ url_for('admin_judges') }}">Manage Judges</a>
+      <a class="btn" href="{{ url_for('admin_export_registrations_csv', **reg_filters) }}" style="background: #1d6f42;">Export Registrations (CSV)</a>
       <a class="btn secondary" href="{{ url_for('index') }}">View Public Site</a>
     </div>
   </section>
 
   <section class="section">
-    <h2>Evaluation Results (by average total score)</h2>
-    <p class="muted">Scores are averaged across all judge evaluations submitted for each registration (max total {{ judging_parameters|length * 10 }}).</p>
+    <h2>Registration Deadline</h2>
+    <p class="muted">Set or update the student registration deadline shown on the main page.</p>
+    <form method="post" action="{{ url_for('admin_set_registration_deadline') }}" class="card" style="max-width: 32rem;">
+      <div class="field">
+        <label for="registration_deadline">Registration deadline</label>
+        <input
+          type="datetime-local"
+          id="registration_deadline"
+          name="registration_deadline"
+          value="{{ registration_deadline.strftime('%Y-%m-%dT%H:%M') if registration_deadline else '' }}"
+        >
+        <div class="help">Leave empty and save to clear the deadline and reopen registrations.</div>
+      </div>
+      <div class="actions">
+        <button type="submit" class="btn">Save Deadline</button>
+        {% if registration_deadline %}
+          <span class="muted">Current: {{ registration_deadline.strftime('%d %b %Y, %I:%M %p') }} {% if registration_open %}(open){% else %}(closed){% endif %}</span>
+        {% else %}
+          <span class="muted">No deadline set - registrations are open.</span>
+        {% endif %}
+      </div>
+    </form>
+  </section>
+
+  <section class="section">
+    <h2>Four-Level Evaluation Structure</h2>
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
-            <th>Reg. No.</th>
-            <th>Project</th>
-            <th>Type</th>
-            <th>Track</th>
-            <th>School / Leader</th>
-            <th>Judges</th>
-            <th>Avg Total</th>
-            <th>Avg: Problem</th>
-            <th>Avg: Solution</th>
-            <th>Avg: Creativity</th>
-            <th>Avg: Feasibility</th>
-            <th>Avg: Presentation</th>
+            <th>Level</th>
+            <th>Mode</th>
+            <th>Active in App</th>
+            <th>Evaluated</th>
           </tr>
         </thead>
         <tbody>
-          {% for r in results %}
-            <tr>
-              <td><strong>{{ r.registration_number }}</strong></td>
-              <td>{{ r.problem_title }}</td>
-              <td>{{ r.team_type|capitalize }}</td>
-              <td>{{ r.track }}</td>
-              <td>{{ r.school_name }}<br><span class="muted">{{ r.leader_name }}</span></td>
-              <td>{{ r.eval_count or 0 }}</td>
-              <td>{% if r.avg_total is not none %}<strong>{{ "%.2f"|format(r.avg_total) }}</strong>{% else %}<span class="muted">—</span>{% endif %}</td>
-              <td>{{ "%.2f"|format(r.avg_problem_understanding) if r.avg_problem_understanding is not none else "—" }}</td>
-              <td>{{ "%.2f"|format(r.avg_solution_relevance) if r.avg_solution_relevance is not none else "—" }}</td>
-              <td>{{ "%.2f"|format(r.avg_creativity) if r.avg_creativity is not none else "—" }}</td>
-              <td>{{ "%.2f"|format(r.avg_feasibility) if r.avg_feasibility is not none else "—" }}</td>
-              <td>{{ "%.2f"|format(r.avg_presentation) if r.avg_presentation is not none else "—" }}</td>
+          {% for level in evaluation_levels %}
+            {% set c = round_counts.get(level.key, {}) %}
+            <tr {% if selected_round == level.key %}style="background:#eef7ff;"{% endif %}>
+              <td><a href="{{ url_for('admin_dashboard', round=level.key) }}"><strong>{{ level.label }}</strong></a></td>
+              <td>{{ level.mode }}</td>
+              <td>{{ c.get('active', 0) }}</td>
+              <td>{{ c.get('evaluated', 0) }}</td>
             </tr>
-          {% else %}
-            <tr><td colspan="12" class="muted">No registrations yet.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -65,7 +73,125 @@
   </section>
 
   <section class="section">
-    <h2>All Registrations</h2>
+    <h2>{{ selected_round_info.label }} - Evaluation Results</h2>
+    <p class="muted">Scores are averaged across judge evaluations submitted for this round (max total {{ judging_parameters|length * 10 }}). Qualifying a team moves it to the next round.</p>
+    <div class="actions">
+      {% for level in evaluation_levels %}
+        <a class="btn {% if selected_round != level.key %}secondary{% endif %}" href="{{ url_for('admin_dashboard', round=level.key) }}">{{ level.short_label }}</a>
+      {% endfor %}
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Reg. No.</th>
+            <th>Project</th>
+            <th>School / Leader</th>
+            <th>Round Status</th>
+            <th>Judges</th>
+            <th>Avg Total</th>
+            <th>Avg: Problem</th>
+            <th>Avg: Solution</th>
+            <th>Avg: Creativity</th>
+            <th>Avg: Feasibility</th>
+            <th>Avg: Presentation</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in results %}
+            <tr>
+              <td><strong>{{ r.registration_number }}</strong></td>
+              <td>{{ r.problem_title }}<br><span class="muted">{{ r.track }}</span></td>
+              <td>{{ r.school_name }}<br><span class="muted">{{ r.leader_name }}</span></td>
+              <td>
+                {% if r.round_status == 'qualified' %}
+                  <span class="badge done">Qualified</span>
+                {% elif r.round_status == 'not_qualified' %}
+                  <span class="badge pending">Not Qualified</span>
+                {% else %}
+                  <span class="badge pending">Pending</span>
+                {% endif %}
+              </td>
+              <td>{{ r.eval_count or 0 }}</td>
+              <td>{% if r.avg_total is not none %}<strong>{{ "%.2f"|format(r.avg_total) }}</strong>{% else %}<span class="muted">—</span>{% endif %}</td>
+              <td>{{ "%.2f"|format(r.avg_problem_understanding) if r.avg_problem_understanding is not none else "—" }}</td>
+              <td>{{ "%.2f"|format(r.avg_solution_relevance) if r.avg_solution_relevance is not none else "—" }}</td>
+              <td>{{ "%.2f"|format(r.avg_creativity) if r.avg_creativity is not none else "—" }}</td>
+              <td>{{ "%.2f"|format(r.avg_feasibility) if r.avg_feasibility is not none else "—" }}</td>
+              <td>{{ "%.2f"|format(r.avg_presentation) if r.avg_presentation is not none else "—" }}</td>
+              <td>
+                <div class="actions" style="gap:0.25rem;">
+                  <form method="post" action="{{ url_for('admin_update_round_status', registration_id=r.id) }}" class="inline-form">
+                    <input type="hidden" name="round" value="{{ selected_round }}">
+                    <input type="hidden" name="status" value="qualified">
+                    <button class="btn small" type="submit">Qualify</button>
+                  </form>
+                  <form method="post" action="{{ url_for('admin_update_round_status', registration_id=r.id) }}" class="inline-form">
+                    <input type="hidden" name="round" value="{{ selected_round }}">
+                    <input type="hidden" name="status" value="not_qualified">
+                    <button class="btn small secondary" type="submit">Not Qualified</button>
+                  </form>
+                  <form method="post" action="{{ url_for('admin_update_round_status', registration_id=r.id) }}" class="inline-form">
+                    <input type="hidden" name="round" value="{{ selected_round }}">
+                    <input type="hidden" name="status" value="pending">
+                    <button class="btn small secondary" type="submit">Pending</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="12" class="muted">No teams in this round yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>All Registrations{% if selected_reg_round_info %} - {{ selected_reg_round_info.short_label }}{% endif %}</h2>
+    <p class="muted">Filter registrations and export the filtered data as Excel or CSV.</p>
+    <form method="get" action="{{ url_for('admin_dashboard') }}" class="card" style="margin-bottom:1rem;">
+      <input type="hidden" name="round" value="{{ selected_round }}">
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem;">
+        <div class="field">
+          <label for="reg_round">Evaluation Round</label>
+          <select id="reg_round" name="reg_round">
+            <option value="all" {% if reg_filters.reg_round == 'all' %}selected{% endif %}>All Rounds</option>
+            {% for level in evaluation_levels %}
+              <option value="{{ level.key }}" {% if reg_filters.reg_round == level.key %}selected{% endif %}>{{ level.short_label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="track">Track</label>
+          <select id="track" name="track">
+            <option value="all" {% if reg_filters.track == 'all' %}selected{% endif %}>All Tracks</option>
+            {% for t in tracks %}
+              <option value="{{ t.name }}" {% if reg_filters.track == t.name %}selected{% endif %}>{{ t.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="team_type">Team Type</label>
+          <select id="team_type" name="team_type">
+            <option value="all" {% if reg_filters.team_type == 'all' %}selected{% endif %}>All Types</option>
+            <option value="solo" {% if reg_filters.team_type == 'solo' %}selected{% endif %}>Solo</option>
+            <option value="group" {% if reg_filters.team_type == 'group' %}selected{% endif %}>Group</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="q">Search</label>
+          <input id="q" name="q" type="text" value="{{ reg_filters.q }}" placeholder="Reg no, school, leader, title">
+        </div>
+      </div>
+      <div class="actions" style="margin-top:0.75rem;">
+        <button type="submit" class="btn">Apply Filters</button>
+        <a class="btn secondary" href="{{ url_for('admin_dashboard', round=selected_round) }}">Clear</a>
+        <a class="btn" href="{{ url_for('admin_export_registrations', **reg_filters) }}" style="background: var(--accent);">Export Excel</a>
+        <a class="btn" href="{{ url_for('admin_export_registrations_csv', **reg_filters) }}" style="background: #1d6f42;">Export CSV</a>
+      </div>
+    </form>
     <div class="table-wrap">
       <table>
         <thead>

@@ -9,6 +9,20 @@
     </div>
   </section>
 
+  {% if new_judge_credentials or reset_judge_credentials %}
+    {% set creds = new_judge_credentials or reset_judge_credentials %}
+    {% set cred_title = "New Judge Credentials" if new_judge_credentials else "Reset Judge Credentials" %}
+    <section class="section">
+      <div class="card" style="max-width: 640px; border-left: 5px solid var(--accent); background: #f7fcf3;">
+        <h3>{{ cred_title }}</h3>
+        <p class="muted">Share these credentials with the judge. The password is shown only now.</p>
+        <p><strong>Name:</strong> {{ creds.name }}</p>
+        <p><strong>Username:</strong> <code>{{ creds.username }}</code></p>
+        <p><strong>Password:</strong> <code>{{ creds.password }}</code></p>
+      </div>
+    </section>
+  {% endif %}
+
   <section class="section">
     <div class="card" style="max-width: 640px;">
       <h3>Add a Judge</h3>
@@ -39,7 +53,7 @@
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>Name</th><th>Username</th><th>Created (UTC)</th></tr>
+          <tr><th>Name</th><th>Username</th><th>Created (UTC)</th><th>Give / Reset Credentials</th></tr>
         </thead>
         <tbody>
           {% for j in judges %}
@@ -47,9 +61,15 @@
               <td>{{ j.name }}</td>
               <td><code>{{ j.username }}</code></td>
               <td>{{ j.created_at }}</td>
+              <td>
+                <form method="post" action="{{ url_for('admin_reset_judge_password', judge_id=j.id) }}" class="inline-form">
+                  <input type="password" name="password" minlength="6" placeholder="New password" required style="max-width: 180px;">
+                  <button type="submit" class="btn small">Set Password</button>
+                </form>
+              </td>
             </tr>
           {% else %}
-            <tr><td colspan="3" class="muted">No judge accounts yet.</td></tr>
+            <tr><td colspan="4" class="muted">No judge accounts yet.</td></tr>
           {% endfor %}
         </tbody>
       </table>

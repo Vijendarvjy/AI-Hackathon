@@ -95,3 +95,30 @@ Admins can create additional judge accounts from **Admin Dashboard → Manage Ju
 - Judging parameters and theme/track text are defined as constants near the top of `app.py` for easy customization. Group size is unlimited (solo or group with any number of members).
 - Set a secure `SECRET_KEY` environment variable for production-like use.
 - For a real deployment, use a production WSGI server and secure credential management.
+
+## Netlify deployment (full Flask app)
+
+This repo includes a Netlify Functions setup for deploying the full Flask app:
+
+- [netlify.toml](netlify.toml) - build/publish/functions config and redirect to the Flask function
+- [netlify/functions/app.py](netlify/functions/app.py) - serverless-wsgi handler wrapping the Flask app
+- [netlify/functions/requirements.txt](netlify/functions/requirements.txt) - Python dependencies for the function runtime
+- [netlify/public/index.html](netlify/public/index.html) - publish-directory placeholder
+
+### Deploy steps
+
+1. Push the repository to GitHub.
+2. In Netlify, create a new site from the repo.
+3. Use the repo defaults from `netlify.toml`:
+   - Build command: `npm run build`
+   - Publish directory: `netlify/public`
+   - Functions directory: `netlify/functions`
+4. Set environment variables as needed (at minimum, set a strong `SECRET_KEY`).
+
+### Important limitation
+
+The app uses SQLite. On Netlify Functions, the database is stored in `/tmp` and is **ephemeral** - data is reset on cold starts/redeploys and is not shared across function instances. For production use, migrate to a persistent managed database (for example PostgreSQL) and update the app's database configuration.
+
+### Static-only alternative
+
+For a static landing page only (no backend features), deploy the [netlify-static/](netlify-static/) folder. See [netlify-static/netlify.toml](netlify-static/netlify.toml).
