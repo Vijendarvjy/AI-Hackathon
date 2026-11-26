@@ -103,7 +103,7 @@ This repo includes a Netlify Functions setup for deploying the full Flask app:
 - [netlify.toml](netlify.toml) - build/publish/functions config and redirect to the Flask function
 - [netlify/functions/app.py](netlify/functions/app.py) - serverless-wsgi handler wrapping the Flask app
 - [netlify/functions/requirements.txt](netlify/functions/requirements.txt) - Python dependencies for the function runtime
-- [netlify/public/index.html](netlify/public/index.html) - publish-directory placeholder
+- [netlify/public/.gitkeep](netlify/public/.gitkeep) - keeps the publish directory in git (publish dir is required by Netlify)
 
 ### Deploy steps
 
