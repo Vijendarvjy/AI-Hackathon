@@ -122,7 +122,3 @@ By default, SQLite is stored in the app filesystem. On Render free instances thi
 
 - Attach a Render persistent disk and set `DATABASE_PATH=/var/data/hackathon.db` (see commented disk settings in [render.yaml](render.yaml)), or
 - Migrate to a managed database (e.g., Render PostgreSQL) and update the app DB configuration.
-
-### Netlify static-only alternative
-
-Netlify Functions do not support Python runtimes, so the full Flask app cannot run as Netlify Functions. For a static landing page only (no backend features), deploy the [netlify-static/](netlify-static/) folder. See [netlify-static/netlify.toml](netlify-static/netlify.toml).

@@ -1,9 +1,0 @@
-﻿{
-  "name": "ai-hackathon",
-  "private": true,
-  "version": "1.0.0",
-  "description": "AI Hackathon Flask app configured for Netlify Functions deployment",
-  "scripts": {
-    "build": "python -m pip install -r requirements.txt || python3 -m pip install -r requirements.txt || echo pip install skipped; node -e \"require('fs').mkdirSync('netlify/public',{recursive:true}); require('fs').closeSync(require('fs').openSync('netlify/public/.gitkeep','a'))\""
-  }
-}

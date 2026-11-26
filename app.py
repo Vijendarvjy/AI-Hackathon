@@ -22,9 +22,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 _database_override = os.environ.get("DATABASE_PATH")
 if _database_override:
     DATABASE = _database_override
-# Netlify Functions run on a read-only filesystem except /tmp.
-# SQLite data in /tmp is ephemeral and not shared across function instances.
-elif os.environ.get("NETLIFY") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+# Serverless environments often provide only /tmp as writable storage.
+# SQLite data in /tmp is ephemeral and not shared across instances.
+elif os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
     DATABASE = os.path.join("/tmp", "hackathon.db")
 else:
     DATABASE = os.path.join(BASE_DIR, "instance", "hackathon.db")
