@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: ai-hackathon
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: SECRET_KEY
+        generateValue: true
+      # Optional: set DATABASE_PATH when using a Render persistent disk.
+      # - key: DATABASE_PATH
+      #   value: /var/data/hackathon.db
+    # Optional persistent disk for SQLite (requires a paid Render plan).
+    # disk:
+    #   name: hackathon-data
+    #   mountPath: /var/data
+    #   sizeGB: 1

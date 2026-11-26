@@ -18,9 +18,13 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# Allow overriding the SQLite path (e.g. Render persistent disk mount).
+_database_override = os.environ.get("DATABASE_PATH")
+if _database_override:
+    DATABASE = _database_override
 # Netlify Functions run on a read-only filesystem except /tmp.
 # SQLite data in /tmp is ephemeral and not shared across function instances.
-if os.environ.get("NETLIFY") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+elif os.environ.get("NETLIFY") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
     DATABASE = os.path.join("/tmp", "hackathon.db")
 else:
     DATABASE = os.path.join(BASE_DIR, "instance", "hackathon.db")

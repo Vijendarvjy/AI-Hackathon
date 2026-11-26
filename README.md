@@ -96,29 +96,33 @@ Admins can create additional judge accounts from **Admin Dashboard → Manage Ju
 - Set a secure `SECRET_KEY` environment variable for production-like use.
 - For a real deployment, use a production WSGI server and secure credential management.
 
-## Netlify deployment (full Flask app)
+## Render deployment (full Flask app)
 
-This repo includes a Netlify Functions setup for deploying the full Flask app:
+This repo includes a Render Blueprint for deploying the full Flask app:
 
-- [netlify.toml](netlify.toml) - build/publish/functions config and redirect to the Flask function
-- [netlify/functions/app.py](netlify/functions/app.py) - serverless-wsgi handler wrapping the Flask app
-- [netlify/functions/requirements.txt](netlify/functions/requirements.txt) - Python dependencies for the function runtime
-- [netlify/public/.gitkeep](netlify/public/.gitkeep) - keeps the publish directory in git (publish dir is required by Netlify)
+- [render.yaml](render.yaml) - Render web service config
+- [requirements.txt](requirements.txt) - includes `gunicorn` for production serving
+- `DATABASE_PATH` env var support in [app.py](app.py) for optional persistent-disk SQLite
 
 ### Deploy steps
 
 1. Push the repository to GitHub.
-2. In Netlify, create a new site from the repo.
-3. Use the repo defaults from `netlify.toml`:
-   - Build command: `npm run build`
-   - Publish directory: `netlify/public`
-   - Functions directory: `netlify/functions`
-4. Set environment variables as needed (at minimum, set a strong `SECRET_KEY`).
+2. In Render, create a new **Blueprint** instance from the repo (or create a Web Service manually).
+3. Render will use `render.yaml` defaults:
+   - Build command: `pip install -r requirements.txt`
+   - Start command: `gunicorn app:app --bind 0.0.0.0:$PORT`
+4. Confirm environment variables:
+   - `SECRET_KEY` - generate a strong value
+   - `PYTHON_VERSION` - `3.11.11` (set in `render.yaml`)
+5. Deploy. The app will be available at your Render service URL.
 
-### Important limitation
+### SQLite persistence note
 
-The app uses SQLite. On Netlify Functions, the database is stored in `/tmp` and is **ephemeral** - data is reset on cold starts/redeploys and is not shared across function instances. For production use, migrate to a persistent managed database (for example PostgreSQL) and update the app's database configuration.
+By default, SQLite is stored in the app filesystem. On Render free instances this is **ephemeral** (data resets on redeploy/restart). For persistence:
 
-### Static-only alternative
+- Attach a Render persistent disk and set `DATABASE_PATH=/var/data/hackathon.db` (see commented disk settings in [render.yaml](render.yaml)), or
+- Migrate to a managed database (e.g., Render PostgreSQL) and update the app DB configuration.
 
-For a static landing page only (no backend features), deploy the [netlify-static/](netlify-static/) folder. See [netlify-static/netlify.toml](netlify-static/netlify.toml).
+### Netlify static-only alternative
+
+Netlify Functions do not support Python runtimes, so the full Flask app cannot run as Netlify Functions. For a static landing page only (no backend features), deploy the [netlify-static/](netlify-static/) folder. See [netlify-static/netlify.toml](netlify-static/netlify.toml).
