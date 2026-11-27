@@ -2,7 +2,11 @@
 {% block title %}AI Hackathon - Home{% endblock %}
 {% block content %}
   <section class="hero">
-    <h2>Meri Samasya, Mera Samadhan (My Problem, My Solution)</h2>
+    <div class="hero-content">
+      <p class="eyebrow">AI for good · Ideas that help communities</p>
+      <h2>Meri Samasya, Mera Samadhan</h2>
+      <p class="hero-subtitle">My Problem, My Solution</p>
+      <p class="hero-description">Turn a real challenge in your home, school, or village into an idea that makes a difference.</p>
     {% if registration_deadline %}
       <p class="muted" style="margin-top:0.75rem;">
         <strong>Registration deadline:</strong> {{ registration_deadline.strftime('%d %b %Y, %I:%M %p') }}
@@ -20,6 +24,8 @@
         <span class="btn secondary" aria-disabled="true">Registrations Closed</span>
       {% endif %}
     </div>
+    </div>
+    <div class="hero-art" aria-hidden="true"></div>
   </section>
 
   <section class="section">
@@ -27,6 +33,7 @@
     <div class="grid tracks">
       {% for track in tracks %}
         <div class="card track-card track-color-{{ loop.index }}">
+          <div class="track-art track-art-{{ loop.index }}" aria-hidden="true"></div>
           <h3>{{ track.name }}</h3>
           <p class="muted"><strong>Examples:</strong> {{ track.examples }}</p>
         </div>

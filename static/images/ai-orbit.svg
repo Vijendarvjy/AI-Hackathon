@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" fill="none">
+  <defs>
+    <linearGradient id="orb" x1="30" y1="35" x2="210" y2="205" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#59F1E5"/>
+      <stop offset=".52" stop-color="#8C8BFF"/>
+      <stop offset="1" stop-color="#C58BFF"/>
+    </linearGradient>
+    <radialGradient id="core" cx="0" cy="0" r="1" gradientTransform="matrix(1 110 -110 1 120 120)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#24DCE0" stop-opacity=".3"/>
+      <stop offset="1" stop-color="#7061FF" stop-opacity=".04"/>
+    </radialGradient>
+  </defs>
+  <circle cx="120" cy="120" r="95" fill="url(#core)" stroke="url(#orb)" stroke-opacity=".6"/>
+  <circle cx="120" cy="120" r="72" stroke="#B7D9FF" stroke-opacity=".4" stroke-dasharray="3 8"/>
+  <ellipse cx="120" cy="120" rx="102" ry="43" transform="rotate(-32 120 120)" stroke="url(#orb)" stroke-width="2"/>
+  <ellipse cx="120" cy="120" rx="102" ry="43" transform="rotate(32 120 120)" stroke="url(#orb)" stroke-opacity=".75" stroke-width="2"/>
+  <path d="M94 111c0-14 11-25 26-25s26 11 26 25v29c0 12-10 22-22 22h-8c-12 0-22-10-22-22v-5h18v7h16v-19h-34v-12Zm18-8h16v12h-16v-12Z" fill="url(#orb)"/>
+  <circle cx="34" cy="101" r="4" fill="#59F1E5"/>
+  <circle cx="196" cy="54" r="5" fill="#C58BFF"/>
+  <circle cx="191" cy="185" r="4" fill="#59F1E5"/>
+  <path d="M33 76v10m-5-5h10M202 125v12m-6-6h12M66 190v8m-4-4h8" stroke="#D5E5FF" stroke-linecap="round" stroke-opacity=".8"/>
+</svg>

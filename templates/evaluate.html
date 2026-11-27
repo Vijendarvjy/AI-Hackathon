@@ -44,7 +44,8 @@
           {% for p in judging_parameters %}
             {% set val = existing[p.key] if existing else '' %}
             <div class="score-card">
-              <h4>{{ loop.index }}. {{ p.label }}</h4>
+              <span class="score-number" aria-hidden="true">{{ "%02d"|format(loop.index) }}</span>
+              <h4>{{ p.label }}</h4>
               <p>{{ p.description }}</p>
               <label for="{{ p.key }}">Score ({{ min_score }}-{{ max_score }}) *</label>
               <input type="number" id="{{ p.key }}" name="{{ p.key }}" min="{{ min_score }}" max="{{ max_score }}" required value="{{ val }}">
